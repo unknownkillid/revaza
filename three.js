@@ -63,40 +63,57 @@ const dustParticles = new THREE.Points(dustGeometry, dustMaterial);
 scene.add(dustParticles);
 
 // =========================
-// Load Model
+// Load HDRI, then Model
 // =========================
 let model;
-const loader = new THREE.GLTFLoader();
-loader.load('./assets/desert_eagle/scene.gltf', (gltf) => {
-    model = gltf.scene;
+const rgbeLoader = new THREE.RGBELoader();
+rgbeLoader.setPath('./assets/'); // Change to your HDRI folder
+rgbeLoader.load('studio_small_03_4k.hdr', function (texture) {
+    texture.mapping = THREE.EquirectangularReflectionMapping;
 
-    const box = new THREE.Box3().setFromObject(model);
-    const center = new THREE.Vector3();
-    box.getCenter(center);
+    // Keep black background but still use HDRI for reflections
+    scene.environment = texture;
 
-    model.position.sub(center);
-    model.scale.set(2.2, 2.2, 2.2);
-    model.position.y = -1;
-    model.rotation.y = 0.8;
+    // Now load the model
+    const loader = new THREE.GLTFLoader();
+    loader.load('./assets/desert_eagle/scene.gltf', 
+        (gltf) => {
+            model = gltf.scene;
 
-    model.traverse((child) => {
-        if (child.isMesh) {
-            child.castShadow = true;
-            child.receiveShadow = true;
-        }
-    });
+            // Center model
+            const box = new THREE.Box3().setFromObject(model);
+            const center = new THREE.Vector3();
+            box.getCenter(center);
+            model.position.sub(center);
+            model.scale.set(2.2, 2.2, 2.2);
+            model.position.y = -1;
+            model.rotation.y = 0.8;
 
-    scene.add(model);
+            // Apply shadows & envMap
+            model.traverse((child) => {
+                if (child.isMesh) {
+                    child.castShadow = true;
+                    child.receiveShadow = true;
+                    if (child.material && 'envMap' in child.material) {
+                        child.material.envMapIntensity = 0;
+                        child.material.needsUpdate = true;
+                    }
+                }
+            });
+
+            scene.add(model);
+        },
+        undefined,
+        (error) => console.error('Error loading model:', error)
+    );
 });
 
 // =========================
 // Post-processing
 // =========================
 const composer = new THREE.EffectComposer(renderer);
-const renderPass = new THREE.RenderPass(scene, camera);
-composer.addPass(renderPass);
+composer.addPass(new THREE.RenderPass(scene, camera));
 
-// Optimized bloom
 const bloomPass = new THREE.UnrealBloomPass(
     new THREE.Vector2(container.clientWidth, container.clientHeight).multiplyScalar(0.6),
     0.7,
@@ -105,7 +122,6 @@ const bloomPass = new THREE.UnrealBloomPass(
 );
 composer.addPass(bloomPass);
 
-// Light depth of field
 const bokehPass = new THREE.BokehPass(scene, camera, {
     focus: 3.0,
     aperture: 0.00012,
@@ -123,7 +139,7 @@ document.addEventListener('mousemove', (event) => {
 });
 
 // =========================
-// Animation Loop
+// - Animation Loop
 // =========================
 function animate() {
     requestAnimationFrame(animate);
@@ -135,7 +151,7 @@ function animate() {
     camera.position.lerp(new THREE.Vector3(mouseX * 0.5, -mouseY * 0.2, 3), 0.08);
     camera.lookAt(0, 0, 0);
 
-    // Gentle model sway
+    // Gentle model sway (only if loaded)
     if (model) {
         model.rotation.y += 0.0005;
         model.rotation.x = Math.sin(Date.now() * 0.0006) * 0.015;
